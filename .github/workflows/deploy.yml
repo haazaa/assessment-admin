@@ -1,0 +1,73 @@
+
+name: 'CD'
+
+env:
+  APP_NAME: ${{ vars.APP_NAME }}
+  COMPONENT_NAME: ${{ vars.COMPONENT_NAME }}
+  RELEASE_PATH: /root/${{ vars.APP_NAME }}/${{ github.event_name == 'push' && 'dev' || github.event.inputs.environment }}/${{ vars.COMPONENT_NAME }}
+  NODE_ENV: ${{ github.event_name == 'push' && 'dev' || github.event.inputs.environment }}
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment (dev, staging, prod)'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+        required: true
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    if: ${{ contains('["haazaa"]', github.actor) || github.event_name == 'push' || github.event.inputs.environment == 'dev' }}
+
+    steps:
+      # The first step checks out the code from the repository.
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      # The second step sets up Node.js with version 16.
+      - name: Setup Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: 18
+
+      # The third step installs the dependencies and creates a build.
+      - name: Install deps and build project
+        run: |
+          yarn install
+          CI= yarn run build
+
+      # The fourth step transfers the code to the remote server using the Secure Copy (SCP) protocol.
+      # The source directory is set to 'build', which excludes the other directories from being transferred.
+      # Ensure that this is set correctly according to your application's file structure.
+      - name: Transfer files to server
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets[format('{0}_SERVER', env.NODE_ENV)] }}
+          username: ${{ secrets[format('{0}_USER', env.NODE_ENV)] }}
+          key: ${{ secrets[format('{0}_KEY', env.NODE_ENV)] }}
+          rm: true
+          source: 'build'
+          target: ${{ env.RELEASE_PATH }}/build
+
+      # The fifth step copies the NGINX configuration file to the remote server.
+      # The NGINX configuration file is used to proxy requests to the application.
+      # Ensure that this is set correctly according to your application and server's configuration.
+      - name: Copy config files
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets[format('{0}_SERVER', env.NODE_ENV)] }}
+          username: ${{ secrets[format('{0}_USER', env.NODE_ENV)] }}
+          key: ${{ secrets[format('{0}_KEY', env.NODE_ENV)] }}
+          script: |
+            mv ${{ env.RELEASE_PATH }}/build/build/* ${{ env.RELEASE_PATH }}/build/
+            rm -rf ${{ env.RELEASE_PATH }}/build/build
+            echo '${{ secrets[format('{0}_NGINX', env.NODE_ENV)] }}' > ${{ env.RELEASE_PATH }}/build/nginx.conf
+            sudo systemctl restart nginx
