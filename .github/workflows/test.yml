@@ -10,7 +10,7 @@ on:
 
 jobs:
   test:
-    runs-on: self-hosted # Set this to 'ubuntu-latest' if you're not hosting your repo on falcon
+    runs-on: ubuntu-latest # Set this to 'ubuntu-latest' if you're not hosting your repo on falcon
 
     steps:
       # The first step checks out the code from the repository.
